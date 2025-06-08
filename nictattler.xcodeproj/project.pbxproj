@@ -10,9 +10,22 @@
 		AF7F6F9E2DF60E570023DDDE /* nictattler.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = nictattler.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AF7F6FB72DF636E30023DDDE /* Exceptions for "nictattler" folder in "nictattler" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AF7F6F9D2DF60E570023DDDE /* nictattler */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AF7F6FA02DF60E570023DDDE /* nictattler */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AF7F6FB72DF636E30023DDDE /* Exceptions for "nictattler" folder in "nictattler" target */,
+			);
 			path = nictattler;
 			sourceTree = "<group>";
 		};
@@ -259,7 +272,9 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = nictattler/Info.plist;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "nictattler needs access to send messages on your behalf to embarass you!";
+				INFOPLIST_KEY_NSCameraUsageDescription = "nictattler needs access to your camera in order to see when you're taking a hit!";
 				INFOPLIST_KEY_NSContactsUsageDescription = "nictattler needs access to your contacts to embarass you!";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -288,7 +303,9 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = nictattler/Info.plist;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "nictattler needs access to send messages on your behalf to embarass you!";
+				INFOPLIST_KEY_NSCameraUsageDescription = "nictattler needs access to your camera in order to see when you're taking a hit!";
 				INFOPLIST_KEY_NSContactsUsageDescription = "nictattler needs access to your contacts to embarass you!";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (

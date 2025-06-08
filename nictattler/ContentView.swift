@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Contacts
+import AVFoundation
 
 extension Color {
     init(hex: String) {
@@ -38,13 +39,18 @@ struct ContentView: View {
     @State private var contacts: [CNContact] = []
     @State private var messageStatus: String = ""
     @State private var puffGoal: Int = 10
-    @State private var puffsToday: Int = 2
+    @State private var puffsToday: Int = 0
     @State private var streak: Int = 0
     @State private var monthlyProgress: Double = 0.6
     @State private var showingGoalUpdate: Bool = false
     @State private var tempGoal: Int = 10
     @State private var contactsAccessible: Bool = false
     @State private var messagesAccessible: Bool = false
+    @StateObject private var cameraManager = CameraManager()
+    @State private var boundingBoxes: [CGRect] = []
+    @State private var lastDetectionDate: Date?
+    
+    private let objectDetector = ObjectDetector()
 
     let accentColor = Color(hex: "BBACC1")
     let backgroundColor = Color(hex: "F1DEDE")
@@ -97,6 +103,25 @@ struct ContentView: View {
                                 .foregroundColor(messagesAccessible ? .green : .red)
                                 .font(.system(size: 16))
                             Text("Messages")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundColor(.black.opacity(0.7))
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(Color.white.opacity(0.6))
+                        .cornerRadius(12)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    // Camera Access Status
+                    Button(action: {
+                        cameraManager.checkAuthorization()
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: cameraManager.isAuthorized ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(cameraManager.isAuthorized ? .green : .red)
+                                .font(.system(size: 16))
+                            Text("Camera")
                                 .font(.system(size: 14, weight: .medium, design: .rounded))
                                 .foregroundColor(.black.opacity(0.7))
                         }
@@ -169,6 +194,43 @@ struct ContentView: View {
                     Text("current streak: \(streak) days")
                         .font(.title3)
                         .foregroundColor(Color.black.opacity(0.7))
+                }
+
+                // Camera View
+                if cameraManager.isAuthorized {
+                    CameraPreview(session: cameraManager.session)
+                        .frame(height: 200)
+                        .cornerRadius(15)
+                        .overlay(
+                            // Add the bounding box overlay
+                            BoundingBoxOverlay(boxes: boundingBoxes)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 15)
+                                .stroke(accentColor.opacity(0.5), lineWidth: 2)
+                        )
+                } else {
+                    VStack(spacing: 10) {
+                        Text("Enable camera access to begin vape tracking.")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.black.opacity(0.7))
+                            .multilineTextAlignment(.center)
+
+                        Button("Grant Camera Access") {
+                            cameraManager.checkAuthorization()
+                        }
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 15)
+                        .background(accentColor)
+                        .cornerRadius(12)
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding()
+                    .frame(height: 200)
+                    .background(Color.white.opacity(0.4))
+                    .cornerRadius(15)
                 }
 
                 Spacer()
@@ -279,6 +341,30 @@ struct ContentView: View {
             tempGoal = puffGoal
             checkContactsAccess()
             checkMessagesAccess()
+            cameraManager.checkAuthorization()
+
+            // Connect the camera manager to the object detector
+            cameraManager.objectDetector = objectDetector
+            objectDetector.onResults = { boxes in
+                self.boundingBoxes = boxes
+
+                // Increment puff count on detection, with a cooldown
+                guard !boxes.isEmpty else { return }
+
+                let now = Date()
+                let cooldown: TimeInterval = 5 // 5 seconds
+
+                if let lastDate = self.lastDetectionDate {
+                    if now.timeIntervalSince(lastDate) > cooldown {
+                        self.puffsToday += 1
+                        self.lastDetectionDate = now
+                    }
+                } else {
+                    // First detection
+                    self.puffsToday += 1
+                    self.lastDetectionDate = now
+                }
+            }
         }
     }
 
@@ -362,6 +448,153 @@ struct ContentView: View {
             self.messageStatus = "Opened Messages successfully. Press send!"
         } else {
             self.messageStatus = "Error: Could not open Messages."
+        }
+    }
+}
+
+// MARK: - Camera Components
+
+class CameraManager: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    @Published var session = AVCaptureSession()
+    @Published var isAuthorized = false
+
+    private let sessionQueue = DispatchQueue(label: "com.nictattler.sessionQueue")
+    private let videoOutput = AVCaptureVideoDataOutput()
+    
+    // Add a reference to the object detector
+    var objectDetector: ObjectDetector?
+
+    override init() {
+        super.init()
+    }
+
+    func checkAuthorization() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            DispatchQueue.main.async { self.isAuthorized = true }
+            setupSession()
+        case .notDetermined:
+            requestAccess()
+        default:
+            DispatchQueue.main.async { self.isAuthorized = false }
+        }
+    }
+
+    private func requestAccess() {
+        AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+            DispatchQueue.main.async {
+                self?.isAuthorized = granted
+                if granted {
+                    self?.setupSession()
+                }
+            }
+        }
+    }
+
+    private func setupSession() {
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.session.beginConfiguration()
+            
+            guard let device = AVCaptureDevice.default(for: .video) else {
+                print("Error: No video device found.")
+                self.session.commitConfiguration()
+                return
+            }
+            
+            do {
+                let input = try AVCaptureDeviceInput(device: device)
+                if self.session.canAddInput(input) {
+                    self.session.addInput(input)
+                } else {
+                    print("Error: Can't add camera input to session.")
+                    self.session.commitConfiguration()
+                    return
+                }
+            } catch {
+                print("Error setting up camera input: \(error.localizedDescription)")
+                self.session.commitConfiguration()
+                return
+            }
+            
+            // Add the video data output
+            if self.session.canAddOutput(self.videoOutput) {
+                self.session.addOutput(self.videoOutput)
+                self.videoOutput.setSampleBufferDelegate(self, queue: self.sessionQueue)
+            } else {
+                print("Error: Can't add video output to session.")
+                self.session.commitConfiguration()
+                return
+            }
+
+            self.session.commitConfiguration()
+            
+            if !self.session.isRunning {
+                self.session.startRunning()
+            }
+        }
+    }
+    
+    // This delegate method is called for every frame captured by the camera
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        // Pass the frame to the object detector
+        objectDetector?.processFrame(sampleBuffer)
+    }
+}
+
+struct CameraPreview: NSViewRepresentable {
+    let session: AVCaptureSession
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        
+        let previewLayer = AVCaptureVideoPreviewLayer(session: session)
+        previewLayer.videoGravity = .resizeAspect
+        
+        // Flip the camera view horizontally for a mirror effect
+        if let connection = previewLayer.connection, connection.isVideoMirroringSupported {
+            connection.isVideoMirrored = true
+        }
+
+        view.layer = previewLayer
+        
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let layer = nsView.layer as? AVCaptureVideoPreviewLayer {
+            DispatchQueue.main.async {
+                layer.frame = nsView.bounds
+            }
+        }
+    }
+}
+
+// A new view to draw the bounding boxes on the screen
+struct BoundingBoxOverlay: View {
+    let boxes: [CGRect]
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ForEach(0..<boxes.count, id: \.self) { index in
+                let box = boxes[index]
+                
+                // Vision's coordinate system is normalized and has an origin at the bottom-left.
+                // We need to convert it to SwiftUI's top-left origin system AND account for the horizontal mirroring of the preview.
+                let rect = CGRect(
+                    x: (1 - box.origin.x - box.width) * geometry.size.width, // Flip horizontally
+                    y: (1 - box.origin.y - box.height) * geometry.size.height, // Flip vertically
+                    width: box.width * geometry.size.width,
+                    height: box.height * geometry.size.height
+                )
+                
+                Rectangle()
+                    .stroke(Color.red, lineWidth: 2)
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+            }
         }
     }
 }
