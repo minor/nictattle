@@ -38,8 +38,10 @@ extension Color {
 struct ContentView: View {
     @State private var contacts: [CNContact] = []
     @State private var messageStatus: String = ""
-    @State private var puffGoal: Int = 10
-    @State private var puffsToday: Int = 0
+    @AppStorage("puffGoal") var puffGoal: Int = 10
+    @AppStorage("puffsToday") var puffsToday: Int = 0
+    @AppStorage("lastResetDate") var lastResetDate: String = ""
+    @AppStorage("penaltySentToday") var penaltySentToday: Bool = false
     @State private var streak: Int = 0
     @State private var monthlyProgress: Double = 0.6
     @State private var showingGoalUpdate: Bool = false
@@ -342,6 +344,7 @@ struct ContentView: View {
             checkContactsAccess()
             checkMessagesAccess()
             cameraManager.checkAuthorization()
+            resetPuffsIfNeeded()
 
             // Connect the camera manager to the object detector
             cameraManager.objectDetector = objectDetector
@@ -365,6 +368,63 @@ struct ContentView: View {
                     self.lastDetectionDate = now
                 }
             }
+        }
+        .onChange(of: puffsToday) { newValue in
+            if newValue > puffGoal && !penaltySentToday {
+                executePenalty()
+            }
+        }
+    }
+
+    func resetPuffsIfNeeded() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let todayString = formatter.string(from: Date())
+
+        if todayString != lastResetDate {
+            puffsToday = 0
+            penaltySentToday = false
+            lastResetDate = todayString
+            print("Puff counter has been reset for the new day.")
+        }
+    }
+
+    func executePenalty() {
+        print("Puff goal exceeded! Executing penalty.")
+
+        // 1. Select a random contact with a phone number
+        guard let contact = contacts.filter({ !$0.phoneNumbers.isEmpty }).randomElement() else {
+            self.messageStatus = "No contacts with phone numbers found to send penalty to."
+            return
+        }
+
+        // 2. Send the message
+        sendPenaltyMessage(to: contact)
+        
+        // 3. Mark penalty as sent for the day
+        penaltySentToday = true
+    }
+
+    func sendPenaltyMessage(to contact: CNContact) {
+        // 1. Get phone number
+        guard let phoneNumber = contact.phoneNumbers.first?.value.stringValue.filter("0123456789".contains) else { return }
+        
+        // 2. Prepare and send the message
+        let embarrassingMessage = "Hey, my friend is holding me accountable for my vaping addiction. I just went over my limit for the day. I have been a very bad boy and hopefully my addiction gets better."
+        
+        guard let messageBody = embarrassingMessage.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            self.messageStatus = "Error: Could not encode the message."
+            return
+        }
+
+        let urlString = "sms:\(phoneNumber)&body=\(messageBody)"
+        guard let url = URL(string: urlString) else { return }
+
+        let success = NSWorkspace.shared.open(url)
+        if success {
+            self.messageStatus = "Penalty message opened. Press send!"
+        } else {
+            self.messageStatus = "Error: Could not open Messages."
         }
     }
 
